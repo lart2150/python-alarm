@@ -5,19 +5,19 @@ import re
 import httplib
 import pygame
 import ConfigParser
+import json
+import subprocess
 from datetime import datetime
 
 config = ConfigParser.ConfigParser()
 config.read('alarm.cfg')
 
-#portName = "/dev/ttyACM0";
 portName = config.get('Settings', 'portName')
 
 #Open port for communication	
 serPort = serial.Serial(portName, 115200, timeout=1)
 
 pygame.init();
-#pygame.mixer.music.load("/home/lart/alarm/2_HutchSFX.mp3");
 pygame.mixer.music.load(config.get('Settings', 'doorChime'));
 
 
@@ -29,10 +29,11 @@ def getState(serPort, gpioNum):
 	return response;
 	
 def alert(gpioNum, newstate):
-#	conn = httplib.HTTPConnection("alarm.lart2150.com")
 	conn = httplib.HTTPConnection(config.get('Settings', 'httpHost'))
-#	conn.request("GET", "/index.php/api/door-event/doorPort/" + str(gpioNum) + "/eventType/" + newstate)
 	conn.request("GET", config.get('Settings', 'httpURI') + "/doorPort/" + str(gpioNum) + "/eventType/" + newstate)
+	r1 = conn.getresponse()
+	jsonDecoded = json.loads(r1.read())
+	return jsonDecoded
 	
 def monitorStateChange(serPort, gpioNum, newstate):
 	start = datetime.now();
@@ -52,8 +53,9 @@ def monitorStateChange(serPort, gpioNum, newstate):
 		delta = now - start;
 	return True;
 
-#states = [[0, "apples"], [3, "appples"], [4, "apples"]];
 states = eval(config.get('Settings', 'sensors'));
+shellcmd = config.get('Settings', 'shell');
+
 while True:
 	for (i, state) in enumerate(states):
 		newstate = getState(serPort, state[0]);
@@ -62,6 +64,9 @@ while True:
 				print "State Changed to: " + newstate + " Port: " + str(state[0]) + " at: " + datetime.now().isoformat(' ');
 				if (newstate == '1'):
 					pygame.mixer.music.play()
-				alert( state[0], newstate);
+				responce = alert( state[0], newstate);
+				args = ['/home/lart/alarm/event.sh', str(responce['eventID']), responce['armedStatus'], newstate]
+				print args
+				p = subprocess.Popen(args)
 				states[i][1] = newstate;
 serPort.close()
